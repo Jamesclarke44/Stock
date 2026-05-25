@@ -146,6 +146,11 @@ if run:
     result = evaluate_ticker(data)
 
     st.subheader(f"Result for **{ticker}**")
+    
+    # Show Mean Price directly under results
+    mean_price = sma20  # short-term mean used for timing
+    st.metric("Mean Price", f"{mean_price:.2f}")
+
 
     # Top summary
     col1, col2, col3 = st.columns(3)
