@@ -158,18 +158,21 @@ if run:
 
     st.markdown("---")
 
-    # Valuation panel
+    # Valuation panel WITH MEAN PRICE
     st.markdown("### 1. Valuation vs Mean")
+
+    mean_price = sma20  # short-term mean
+
     colv1, colv2, colv3 = st.columns(3)
     with colv1:
-        st.metric("SMA 20 (short-term mean)", f"{sma20:.2f}")
+        st.metric("Mean Price (SMA 20)", f"{mean_price:.2f}")
     with colv2:
-        st.metric("SMA 50 (long-term mean)", f"{sma50:.2f}")
+        st.metric("Long-Term Mean (SMA 50)", f"{sma50:.2f}")
     with colv3:
-        st.metric("Price", f"{price:.2f}")
+        st.metric("Current Price", f"{price:.2f}")
 
-    st.write(f"**Distance from SMA 20:** {result['dist_st_pct']:.2f}%")
-    st.write(f"**Valuation status:** {result['val_label']}")
+    st.write(f"**Distance from Mean:** {result['dist_st_pct']:.2f}%")
+    st.write(f"**Valuation Status:** {result['val_label']}")
 
     st.markdown("---")
 
@@ -183,8 +186,8 @@ if run:
     with colt3:
         st.metric("ATR", f"{atr:.2f}")
 
-    st.write(f"**Trend status:** {result['trend_label']}")
-    st.write(f"**Stability status:** {result['atr_label']}")
+    st.write(f"**Trend Status:** {result['trend_label']}")
+    st.write(f"**Stability Status:** {result['atr_label']}")
 
     st.markdown("---")
 
@@ -198,8 +201,8 @@ if run:
     with colr3:
         st.metric("BB Lower", f"{bbl:.2f}")
 
-    st.write(f"**RSI status:** {result['rsi_label']}")
-    st.write(f"**Premium status (IVR):** {result['ivr_label']}")
+    st.write(f"**RSI Status:** {result['rsi_label']}")
+    st.write(f"**Premium Status (IVR):** {result['ivr_label']}")
 
     st.markdown("---")
 
