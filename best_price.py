@@ -107,9 +107,8 @@ def mean_reversion_probability(price, sma20, rsi, adx, vwap, bbu, bbl):
 
 def buy_zone_indicator(price, sma20, sma50):
     if sma20 == 0 or sma50 == 0:
-        return "Unknown", "Mean values missing — cannot determine buy zone."
+        return "Unknown", "Mean values missing — cannot determine buy zone.", 0, 0
 
-    # Normalize so we always know the lower / upper mean
     lower_mean = min(sma20, sma50)
     upper_mean = max(sma20, sma50)
 
@@ -195,7 +194,6 @@ def evaluate_ticker(t):
         ivr_label = "IVR high (>50, risky)"
         notes.append("IVR high — rich premium but higher risk.")
 
-    # Final action
     if score >= 4:
         action = "BUY for covered calls"
     elif score >= 2:
@@ -264,7 +262,7 @@ if run:
 
     st.subheader(f"Result for **{ticker}**")
 
-    # Mean Price directly under results
+    # Mean Price
     mean_price = sma20
     st.metric("Mean Price (SMA 20)", f"{mean_price:.2f}")
     st.caption("SMA 20 is the short-term mean price used for timing entries.")
@@ -281,9 +279,19 @@ if run:
     for n in mr_notes:
         st.write(f"- {n}")
 
+    # Explanation: Why probability can be low even near the mean
+    st.markdown("#### Why Probability Can Be Low Even Near the Mean")
+    st.write(
+        "Even when price is close to the mean (SMA 20), mean reversion probability can still be **Low** because "
+        "the scanner uses five independent signals, not just price distance. Mean reversion requires multiple "
+        "conditions to align: price stretch, RSI extremes, weakening trend (ADX), VWAP alignment, and Bollinger "
+        "band touches. If only one of these is present (often just price stretch), the probability stays **Low**. "
+        "Being near the mean is not enough — the market also needs to show signs of slowing, reversing, or losing trend strength."
+    )
+
     st.markdown("---")
 
-    # Top summary
+    # Overall assessment
     st.markdown("### Overall Covered Call Assessment")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -293,6 +301,16 @@ if run:
     with col3:
         st.metric("ATR %", f"{result['atr_pct']:.2f}%")
     st.caption("Action and score summarize valuation, trend, timing, stability, and premium quality for covered calls.")
+
+    # Explanation: Scanner Interpretation Buy / Wait / Avoid
+    st.markdown("#### Scanner Interpretation: Buy / Wait / Avoid — With Explanation")
+    st.write(
+        "The scanner evaluates five categories: valuation vs mean, trend safety, RSI timing, stability (ATR%), "
+        "and premium quality (IVR). Each category can add one point to the score. A total score of 4–5 is labeled "
+        "**BUY for covered calls**, 2–3 is **WAIT**, and 0–1 is **AVOID**. This is not financial advice — it is simply "
+        "how the scanner interprets the data. A stock is only a BUY when valuation, timing, trend, stability, and "
+        "premium all align; if one or more of these are weak, the scanner will usually say **WAIT** instead of BUY."
+    )
 
     st.markdown("---")
 
