@@ -2,6 +2,7 @@
 
 import streamlit as st
 import pandas as pd
+import math
 
 st.set_page_config(
     page_title="Best Price Scanner – Covered Calls",
@@ -116,6 +117,7 @@ def buy_zone_indicator(price, sma20, sma50):
         label = "Inside mean buy zone"
     elif price < lower_mean:
         label = "Deep value zone"
+        # keep description from map
     else:
         label = "Above mean zone"
 
@@ -215,6 +217,190 @@ def evaluate_ticker(t):
     }
 
 
+# ---------- Buy / Hold / Sell Classifier ----------
+
+def classify_buy_hold_sell(result, price, sma20, sma50, prob):
+    """
+    Rule-based Buy / Hold / Sell signal.
+    Not financial advice – just how this model interprets conditions.
+    """
+
+    score = result["score"]
+    dist_from_mean = result["dist_st_pct"]
+    downtrend = price < sma50
+    uptrend = price > sma50
+    above_mean = price > sma20
+    below_mean = price < sma20
+
+    # SELL – aggressive, Barchart-style bias when things look weak
+    if (
+        score <= 1
+        or (downtrend and prob == "Low")
+        or (prob == "Low" and above_mean)
+    ):
+        label = "SELL"
+        reason = (
+            "Conditions are weak in this model: either strong/ongoing downtrend, low mean reversion probability, "
+            "or very poor overall score. Risk of further downside or dead money is elevated."
+        )
+
+    # BUY – strong alignment
+    elif (
+        score >= 4
+        and prob in ["High", "Medium"]
+        and (below_mean or (min(sma20, sma50) <= price <= max(sma20, sma50)))
+    ):
+        label = "BUY"
+        reason = (
+            "Conditions are strong: good value vs mean, supportive trend/stability, and reasonable mean reversion "
+            "probability. This is a favorable setup in this model."
+        )
+
+    # HOLD – everything in between
+    else:
+        label = "HOLD"
+        reason = (
+            "Conditions are mixed: not strong enough for a clear BUY, but not weak enough for a clear SELL. "
+            "The model suggests waiting for clearer alignment in trend, valuation, and reversion signals."
+        )
+
+    return label, reason
+
+
+# ---------- Risk Profile ----------
+
+def risk_profile(atr_pct, adx, ivr):
+    """
+    Simple risk profile based on volatility, trend strength, and premium.
+    """
+    risk_score = 0
+    tags = []
+
+    # Volatility
+    if atr_pct < 2:
+        tags.append("Low volatility")
+    elif atr_pct < 4:
+        tags.append("Moderate volatility")
+        risk_score += 1
+    else:
+        tags.append("High volatility")
+        risk_score += 2
+
+    # Trend strength
+    if adx < 20:
+        tags.append("Weak trend")
+    elif adx < 35:
+        tags.append("Moderate trend")
+        risk_score += 1
+    else:
+        tags.append("Strong trend")
+        risk_score += 2
+
+    # Premium
+    if ivr < 20:
+        tags.append("Low premium")
+    elif ivr <= 50:
+        tags.append("Balanced premium")
+    else:
+        tags.append("Aggressive premium")
+        risk_score += 1
+
+    if risk_score <= 1:
+        level = "Low"
+    elif risk_score == 2:
+        level = "Moderate"
+    else:
+        level = "High"
+
+    return level, tags
+
+
+# ---------- Covered Call Yield Projection ----------
+
+def covered_call_yield(price, premium, days_to_expiry):
+    """
+    Simple covered call yield and annualized yield.
+    """
+    if price <= 0 or days_to_expiry <= 0:
+        return 0.0, 0.0
+
+    yield_pct = premium / price * 100
+    annualized = yield_pct * (365 / days_to_expiry)
+    return yield_pct, annualized
+
+
+# ---------- Scenario Runner ----------
+
+def run_scenario(price, sma20, sma50, ivr, atr, rsi, adx, vwap, bbu, bbl):
+    t = {
+        "price": price,
+        "sma20": sma20,
+        "sma50": sma50,
+        "ivr": ivr,
+        "atr": atr,
+        "rsi": rsi,
+        "adx": adx,
+        "vwap": vwap,
+        "bbu": bbu,
+        "bbl": bbl,
+    }
+    result = evaluate_ticker(t)
+    prob, mr_score, mr_notes = mean_reversion_probability(price, sma20, rsi, adx, vwap, bbu, bbl)
+    bhs_label, bhs_reason = classify_buy_hold_sell(result, price, sma20, sma50, prob)
+    return result, prob, mr_score, mr_notes, bhs_label, bhs_reason
+
+
+# ---------- What Would Need to Change for BUY ----------
+
+def what_needs_to_change_for_buy(result, prob, price, sma20, sma50, rsi, adx, ivr, atr_pct):
+    """
+    Explain which levers would likely need to improve to flip to BUY.
+    """
+    messages = []
+
+    if result["score"] < 4:
+        messages.append(
+            "- Overall scanner score is below 4. You would typically need at least one more category "
+            "(valuation, trend, RSI timing, stability, or premium) to improve."
+        )
+
+    if prob == "Low":
+        messages.append(
+            "- Mean reversion probability is Low. A clearer stretch from the mean, RSI extreme, weaker trend (ADX < 30), "
+            "VWAP alignment, or a Bollinger band touch would help."
+        )
+
+    if price > sma20:
+        messages.append(
+            "- Price is above the short-term mean (SMA 20). A pullback toward or slightly under the mean zone "
+            "would improve value."
+        )
+
+    if adx >= 30:
+        messages.append(
+            "- ADX is elevated. A drop in ADX toward the low 20s would signal a weaker trend and better conditions "
+            "for mean reversion and safer entries."
+        )
+
+    if not (20 <= ivr <= 50):
+        messages.append(
+            "- IVR is outside the 20–50 sweet spot. Moving into that range would balance premium and risk better."
+        )
+
+    if atr_pct >= 3:
+        messages.append(
+            "- ATR% is high. A calmer volatility regime (ATR% < 3) would reduce risk for covered calls."
+        )
+
+    if not messages:
+        messages.append(
+            "- Conditions are already close to BUY in this model. A small improvement in either mean reversion "
+            "probability or scanner score could be enough."
+        )
+
+    return messages
+
+
 # ---------- UI ----------
 
 st.title("📊 Best Price Scanner – Covered Calls")
@@ -241,6 +427,11 @@ with st.sidebar:
 
     sma20 = st.number_input("SMA 20", min_value=0.0, value=12.36, step=0.01)
     sma50 = st.number_input("SMA 50", min_value=0.0, value=12.76, step=0.01)
+
+    st.markdown("---")
+    st.subheader("Covered Call Inputs (Optional)")
+    cc_premium = st.number_input("Call Premium (per share)", min_value=0.0, value=0.35, step=0.01)
+    cc_days = st.number_input("Days to Expiry", min_value=1, value=30, step=1)
 
     run = st.button("Run Best Price Scan")
 
@@ -279,7 +470,6 @@ if run:
     for n in mr_notes:
         st.write(f"- {n}")
 
-    # Explanation: Why probability can be low even near the mean
     st.markdown("#### Why Probability Can Be Low Even Near the Mean")
     st.write(
         "Even when price is close to the mean (SMA 20), mean reversion probability can still be **Low** because "
@@ -291,18 +481,28 @@ if run:
 
     st.markdown("---")
 
-    # Overall assessment
+    # Buy / Hold / Sell
+    bhs_label, bhs_reason = classify_buy_hold_sell(result, price, sma20, sma50, prob)
+
     st.markdown("### Overall Covered Call Assessment")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Action", result["action"])
+        st.metric("Scanner Action", result["action"])
     with col2:
         st.metric("Score (0–5)", result["score"])
     with col3:
         st.metric("ATR %", f"{result['atr_pct']:.2f}%")
-    st.caption("Action and score summarize valuation, trend, timing, stability, and premium quality for covered calls.")
+    with col4:
+        st.metric("Signal", bhs_label)
 
-    # Explanation: Scanner Interpretation Buy / Wait / Avoid
+    st.caption(
+        "Scanner Action is the covered-call specific view. The Buy / Hold / Sell Signal is a simplified summary "
+        "of overall conditions in this model (not financial advice)."
+    )
+
+    st.markdown("#### Buy / Hold / Sell Explanation")
+    st.write(bhs_reason)
+
     st.markdown("#### Scanner Interpretation: Buy / Wait / Avoid — With Explanation")
     st.write(
         "The scanner evaluates five categories: valuation vs mean, trend safety, RSI timing, stability (ATR%), "
@@ -311,6 +511,13 @@ if run:
         "how the scanner interprets the data. A stock is only a BUY when valuation, timing, trend, stability, and "
         "premium all align; if one or more of these are weak, the scanner will usually say **WAIT** instead of BUY."
     )
+
+    st.markdown("#### What Would Need to Change for BUY (Model View)")
+    needs = what_needs_to_change_for_buy(
+        result, prob, price, sma20, sma50, rsi, adx, ivr, result["atr_pct"]
+    )
+    for m in needs:
+        st.write(m)
 
     st.markdown("---")
 
@@ -370,8 +577,50 @@ if run:
 
     st.markdown("---")
 
+    # Risk Profile
+    st.markdown("### 4. Risk Profile")
+    risk_level, risk_tags = risk_profile(result["atr_pct"], adx, ivr)
+    st.metric("Risk Level", risk_level)
+    st.write("**Risk Factors:**")
+    for ttag in risk_tags:
+        st.write(f"- {ttag}")
+    st.caption("Risk level is based on volatility (ATR%), trend strength (ADX), and premium aggressiveness (IVR).")
+
+    st.markdown("---")
+
+    # Covered Call Yield Projection
+    st.markdown("### 5. Covered Call Yield Projection")
+    yld, yld_ann = covered_call_yield(price, cc_premium, cc_days)
+    coly1, coly2 = st.columns(2)
+    with coly1:
+        st.metric("Yield for Period", f"{yld:.2f}%")
+    with coly2:
+        st.metric("Annualized Yield", f"{yld_ann:.2f}%")
+    st.caption("Simple yield projection based on premium, underlying price, and days to expiry.")
+
+    st.markdown("---")
+
+    # Scenario Analysis
+    st.markdown("### 6. Scenario Analysis")
+    with st.expander("Try different price / RSI / ADX scenarios"):
+        s_price = st.slider("Scenario Price", min_value=price * 0.7, max_value=price * 1.3, value=price, step=0.1)
+        s_rsi = st.slider("Scenario RSI", min_value=0.0, max_value=100.0, value=rsi, step=1.0)
+        s_adx = st.slider("Scenario ADX", min_value=0.0, max_value=100.0, value=adx, step=1.0)
+
+        s_result, s_prob, s_mr_score, s_mr_notes, s_bhs_label, s_bhs_reason = run_scenario(
+            s_price, sma20, sma50, ivr, atr, s_rsi, s_adx, vwap, bbu, bbl
+        )
+
+        st.write(f"**Scenario Mean Reversion Probability:** {s_prob}")
+        st.write(f"**Scenario Scanner Score:** {s_result['score']}")
+        st.write(f"**Scenario Signal (Buy / Hold / Sell):** {s_bhs_label}")
+        st.write("**Scenario Interpretation:**")
+        st.write(s_bhs_reason)
+
+    st.markdown("---")
+
     # Notes
-    st.markdown("### 4. Notes / Rationale")
+    st.markdown("### 7. Notes / Rationale")
     for n in result["notes"]:
         st.write(f"- {n}")
     st.caption("These notes summarize why the scanner reached its conclusion for this ticker.")
