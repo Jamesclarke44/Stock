@@ -8,7 +8,62 @@ st.set_page_config(
     layout="centered"
 )
 
-# ---------- Core logic ----------
+# ---------- Mean Reversion Probability Logic ----------
+
+def mean_reversion_probability(price, sma20, rsi, adx, vwap, bbu, bbl):
+    score = 0
+    notes = []
+
+    # Distance from mean
+    dist_pct = abs((price - sma20) / sma20 * 100)
+    if 3 <= dist_pct <= 10:
+        score += 1
+        notes.append("Price stretched from mean")
+    else:
+        notes.append("Price not stretched enough")
+
+    # RSI signals
+    if rsi > 70 or rsi < 30:
+        score += 1
+        notes.append("RSI extreme (reversion likely)")
+    elif 40 <= rsi <= 60:
+        notes.append("RSI neutral (normalizing)")
+    else:
+        notes.append("RSI not signaling reversion")
+
+    # ADX weakening
+    if adx < 30:
+        score += 1
+        notes.append("Weak trend (reversion more likely)")
+    else:
+        notes.append("Strong trend (reversion less likely)")
+
+    # VWAP alignment
+    if (price > vwap and sma20 < price) or (price < vwap and sma20 > price):
+        score += 1
+        notes.append("VWAP alignment supports reversion")
+    else:
+        notes.append("VWAP not aligned")
+
+    # Bollinger band touch
+    if price >= bbu or price <= bbl:
+        score += 1
+        notes.append("Band touch (strong reversal signal)")
+    else:
+        notes.append("No band touch")
+
+    # Final probability label
+    if score >= 4:
+        prob = "High"
+    elif score >= 2:
+        prob = "Medium"
+    else:
+        prob = "Low"
+
+    return prob, notes
+
+
+# ---------- Core Scanner Logic ----------
 
 def evaluate_ticker(t):
     price = t["price"]
@@ -79,6 +134,7 @@ def evaluate_ticker(t):
         ivr_label = "IVR high (>50, risky)"
         notes.append("IVR high (risky but rich premium)")
 
+    # Final action
     if score >= 4:
         action = "BUY for covered calls"
     elif score >= 2:
@@ -105,12 +161,12 @@ def evaluate_ticker(t):
 st.title("📊 Best Price Scanner – Covered Calls")
 
 st.markdown(
-    "Paste or enter your data for a ticker and get a **buy / wait / avoid** decision "
-    "specifically for **buying shares to sell covered calls**."
+    "Enter your ticker data and get a **Buy / Wait / Avoid** decision "
+    "specifically optimized for **buying shares to sell covered calls**."
 )
 
 with st.sidebar:
-    st.header("Ticker inputs")
+    st.header("Ticker Inputs")
 
     ticker = st.text_input("Ticker", value="KSS").upper()
 
@@ -146,11 +202,22 @@ if run:
     result = evaluate_ticker(data)
 
     st.subheader(f"Result for **{ticker}**")
-    
-    # Show Mean Price directly under results
-    mean_price = sma20  # short-term mean used for timing
+
+    # Mean Price directly under results
+    mean_price = sma20
     st.metric("Mean Price", f"{mean_price:.2f}")
 
+    # Mean Reversion Probability
+    prob, mr_notes = mean_reversion_probability(price, sma20, rsi, adx, vwap, bbu, bbl)
+
+    st.markdown("### Mean Reversion Probability")
+    st.metric("Reversion Likelihood", prob)
+
+    st.write("**Why:**")
+    for n in mr_notes:
+        st.write(f"- {n}")
+
+    st.markdown("---")
 
     # Top summary
     col1, col2, col3 = st.columns(3)
@@ -163,10 +230,8 @@ if run:
 
     st.markdown("---")
 
-    # Valuation panel WITH MEAN PRICE
+    # Valuation panel
     st.markdown("### 1. Valuation vs Mean")
-
-    mean_price = sma20  # short-term mean
 
     colv1, colv2, colv3 = st.columns(3)
     with colv1:
